@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use warp_core::{
-    channel::{Channel, ChannelConfig, ChannelState, OzConfig, WarpServerConfig},
+    channel::{AutoupdateConfig, Channel, ChannelConfig, ChannelState, OzConfig, WarpServerConfig},
     AppId,
 };
 
@@ -19,7 +19,10 @@ fn main() -> Result<()> {
             oz_config: OzConfig::production(),
             telemetry_config: None,
             crash_reporting_config: None,
-            autoupdate_config: None,
+            autoupdate_config: Some(AutoupdateConfig {
+                releases_base_url: "https://github.com/mojomast/warp/releases/download".into(),
+                show_autoupdate_menu_items: true,
+            }),
             mcp_static_config: None,
         },
     );

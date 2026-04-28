@@ -1,7 +1,8 @@
 use std::{env, fs::read_to_string, sync::Arc};
 
 use anyhow::{Context as _, Result};
-use channel_versions::ChannelVersions;
+use channel_versions::{ChannelVersion, ChannelVersions, VersionInfo};
+use serde::Deserialize;
 
 use crate::{
     channel::{Channel, ChannelState},
@@ -26,6 +27,10 @@ pub async fn fetch_channel_versions(
             .context("Failed to parse channel versions JSON");
     }
 
+    if matches!(ChannelState::channel(), Channel::Oss) {
+        return fetch_channel_versions_from_github_releases(server_api.http_client()).await;
+    }
+
     let channel_versions = server_api
         .fetch_channel_versions(include_changelogs, is_daily)
         .await
@@ -46,6 +51,35 @@ pub async fn fetch_channel_versions(
             fetch_channel_versions_from_json_storage(server_api.http_client(), nonce).await
         }
     }
+}
+
+#[derive(Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+}
+
+async fn fetch_channel_versions_from_github_releases(
+    client: &http_client::Client,
+) -> Result<ChannelVersions> {
+    log::info!("Fetching channel versions from GitHub Releases");
+    let release: GitHubRelease = client
+        .get("https://api.github.com/repos/mojomast/warp/releases/latest")
+        .timeout(FETCH_CHANNEL_VERSIONS_TIMEOUT)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "WarpOss")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    let version = ChannelVersion::new(VersionInfo::new(release.tag_name));
+    Ok(ChannelVersions {
+        dev: version.clone(),
+        preview: version.clone(),
+        stable: version,
+        changelogs: None,
+    })
 }
 
 // Synchronously fetches updated Warp [`ChannelVersions`] from GCP JSON storage. This will soon
