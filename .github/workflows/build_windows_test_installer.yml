@@ -61,15 +61,15 @@ jobs:
         shell: pwsh
         run: |
           $ReleaseTag = "byok-test-${{ github.run_number }}-${{ github.sha }}".Substring(0, 24)
-          $Args = @(
+          $BundleArgs = @(
             "-Channel", "${{ inputs.channel }}",
             "-Arch", "${{ inputs.arch }}",
             "-release-tag", $ReleaseTag
           )
           if ("${{ inputs.debug_build }}" -eq "true") {
-            $Args += "-DEBUG_BUILD"
+            $BundleArgs += "-DEBUG_BUILD"
           }
-          ./script/windows/bundle.ps1 @Args
+          ./script/windows/bundle.ps1 @BundleArgs
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
