@@ -76,7 +76,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: warp-byok-windows-${{ inputs.arch }}-${{ inputs.channel }}
-          path: ${{ steps.bundle.outputs.installer_path }}
+          path: ${{ steps.bundle.outputs.installer_dir }}/*.exe
           if-no-files-found: error
 
       - name: Publish GitHub release
@@ -85,8 +85,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $Assets = Get-ChildItem "${{ steps.bundle.outputs.installer_dir }}" -Filter "*.exe" | ForEach-Object { $_.FullName }
           gh release create "${{ steps.bundle.outputs.release_tag }}" `
-            "${{ steps.bundle.outputs.installer_path }}" `
+            @Assets `
             --repo "${{ github.repository }}" `
             --title "Warp BYOK ${{ steps.bundle.outputs.release_tag }}" `
             --notes "Unsigned Windows BYOK build from ${{ github.sha }}." `

@@ -112,7 +112,7 @@ if ("$CHANNEL" -eq 'local') {
 } elseif ("$CHANNEL" -eq 'oss') {
     $WARP_BIN = 'warp-oss'
     $BINARY_NAME = 'warp-oss.exe'
-    $APP_NAME = 'WarpOss'
+    $APP_NAME = 'warpussy'
     # The OSS channel does not ship Sentry, so drop the crash_reporting feature
     # (which would otherwise pull in the Sentry SDK as a dependency).
     $FEATURES = 'release_bundle,gui,nld_improvements'
@@ -215,8 +215,14 @@ if (-Not $?) {
 # location of the installer so it can be referenced by subsequent actions.
 if ($env:GITHUB_ACTIONS -eq 'true') {
     Write-Output '::echo::on'
+    if ($CHANNEL -eq 'oss') {
+        Copy-Item $INSTALLER_PATH "$INSTALLER_OUTPUT_DIR\warp-ossSetup.exe" -Force
+        Copy-Item $INSTALLER_PATH "$INSTALLER_OUTPUT_DIR\WarpOssSetup.exe" -Force
+    }
     $INSTALLER_PATH = $INSTALLER_PATH -replace '\\', '/'
     "installer_path=$INSTALLER_PATH" >> "$env:GITHUB_OUTPUT"
+    $INSTALLER_OUTPUT_DIR_FOR_OUTPUT = $INSTALLER_OUTPUT_DIR -replace '\\', '/'
+    "installer_dir=$INSTALLER_OUTPUT_DIR_FOR_OUTPUT" >> "$env:GITHUB_OUTPUT"
     "pdb_file_path=$PDB_PATH" >> "$env:GITHUB_OUTPUT"
     Write-Output '::echo::off'
 }
