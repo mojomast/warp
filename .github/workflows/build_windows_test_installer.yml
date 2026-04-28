@@ -20,6 +20,11 @@ on:
         options:
           - x64
           - arm64
+      debug_build:
+        description: "Use the faster debug profile for test installers"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -56,7 +61,15 @@ jobs:
         shell: pwsh
         run: |
           $ReleaseTag = "byok-test-${{ github.run_number }}-${{ github.sha }}".Substring(0, 24)
-          ./script/windows/bundle.ps1 -Channel "${{ inputs.channel }}" -Arch "${{ inputs.arch }}" -release-tag $ReleaseTag
+          $Args = @(
+            "-Channel", "${{ inputs.channel }}",
+            "-Arch", "${{ inputs.arch }}",
+            "-release-tag", $ReleaseTag
+          )
+          if ("${{ inputs.debug_build }}" -eq "true") {
+            $Args += "-DEBUG_BUILD"
+          }
+          ./script/windows/bundle.ps1 @Args
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
