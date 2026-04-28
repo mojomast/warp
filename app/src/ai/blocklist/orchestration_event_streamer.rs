@@ -352,7 +352,7 @@ impl OrchestrationEventStreamer {
 
         let pending = build_pending_events(messages, lifecycle_events);
         OrchestrationEventService::handle(ctx).update(ctx, |svc, ctx| {
-            svc.enqueue_polled_events(conversation_id, pending, ctx);
+            svc.enqueue_event_batch(conversation_id, pending, ctx);
         });
     }
 
