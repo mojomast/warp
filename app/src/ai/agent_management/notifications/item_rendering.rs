@@ -399,9 +399,12 @@ fn render_message_text(message: &str, expanded: bool, appearance: &Appearance) -
 
 /// Total size of the agent avatar component rendered alongside each notification.
 const NOTIFICATION_AVATAR_SIZE: f32 = 32.;
-/// How far to inset the status / cloud overlay from the avatar's BR corner, as a
-/// fraction of `NOTIFICATION_AVATAR_SIZE`.
-const NOTIFICATION_OVERLAY_INSET_RATIO: f32 = 0.05;
+/// Where the status / cloud overlay's BR sits relative to the brand circle's BR edge,
+/// as a signed fraction of `NOTIFICATION_AVATAR_SIZE`.
+/// Negative values push the overlay past the circle's BR (toward the bounding box's
+/// BR); this surface sits slightly past the circle's edge so the badge appears to
+/// hang off the bottom-right corner.
+const NOTIFICATION_OVERLAY_OFFSET_FROM_CIRCLE_EDGE: f32 = -0.19;
 
 fn render_agent_avatar(
     agent: NotificationSourceAgent,
@@ -423,7 +426,7 @@ fn render_agent_avatar(
     render_icon_with_status(
         variant,
         NOTIFICATION_AVATAR_SIZE,
-        NOTIFICATION_OVERLAY_INSET_RATIO,
+        NOTIFICATION_OVERLAY_OFFSET_FROM_CIRCLE_EDGE,
         theme,
         theme.surface_2(),
     )

@@ -111,9 +111,12 @@ pub(super) const VERTICAL_TABS_DETAIL_SIDECAR_POSITION_ID: &str = "vertical_tabs
 /// Total size of the icon-with-status component rendered for each vertical-tabs row.
 /// Sub-components (circle, badge, cloud) are derived inside `render_icon_with_status`.
 const VERTICAL_TABS_ICON_SIZE: f32 = 24.;
-/// How far to inset the status / cloud overlay from the icon's BR corner, as a
-/// fraction of `VERTICAL_TABS_ICON_SIZE`.
-const VERTICAL_TABS_OVERLAY_INSET_RATIO: f32 = 0.05;
+/// Where the status / cloud overlay's BR sits relative to the brand circle's BR edge,
+/// as a signed fraction of `VERTICAL_TABS_ICON_SIZE`.
+/// Negative values push the overlay past the circle's BR (toward the bounding box's
+/// BR); this surface sits slightly past the circle's edge so the badge appears to
+/// hang off the bottom-right corner.
+const VERTICAL_TABS_OVERLAY_OFFSET_FROM_CIRCLE_EDGE: f32 = -0.19;
 
 fn vtab_pane_row_position_id(pane_group_id: EntityId, pane_id: PaneId) -> String {
     format!("vertical_tabs:pane_row:{pane_group_id:?}:{pane_id}")
@@ -250,7 +253,7 @@ fn render_pane_icon_with_status(
     render_icon_with_status(
         variant,
         VERTICAL_TABS_ICON_SIZE,
-        VERTICAL_TABS_OVERLAY_INSET_RATIO,
+        VERTICAL_TABS_OVERLAY_OFFSET_FROM_CIRCLE_EDGE,
         theme,
         theme.background(),
     )
@@ -3585,7 +3588,7 @@ fn render_summary_pane_kind_icon_circle(
         return render_icon_with_status(
             variant,
             total_size,
-            VERTICAL_TABS_OVERLAY_INSET_RATIO,
+            VERTICAL_TABS_OVERLAY_OFFSET_FROM_CIRCLE_EDGE,
             theme,
             theme.background(),
         );

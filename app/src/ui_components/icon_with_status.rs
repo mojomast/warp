@@ -67,11 +67,20 @@ fn status_in_cloud_size(total: f32) -> f32 {
 }
 
 /// Returns the pixel offset applied to the overlay's `BottomRight → BottomRight`
-/// anchor. A non-zero `overlay_inset_ratio` pulls the overlay BR inside the parent BR
-/// by `overlay_inset_ratio * total`, so the badge / cloud sit further "into" the
-/// brand circle (up and to the left) rather than hugging the parent's BR corner.
-fn corner_overlay_offset(total: f32, overlay_inset_ratio: f32) -> f32 {
-    -total * overlay_inset_ratio
+/// anchor.
+/// The offset is measured from the bounding box's BR corner, so the returned value is
+/// negative whenever the overlay sits up-and-left of the box's BR (which is the only
+/// case we render).
+///
+/// `overlay_offset_from_circle_edge_ratio` is a signed fraction of `total` that
+/// positions the overlay's BR relative to the **circle's** BR corner:
+/// * `0.0` — overlay BR sits exactly on the circle's BR edge.
+/// * Positive — overlay BR is pulled further into the circle (toward the center).
+/// * Negative — overlay BR sits past the circle's BR edge, toward the box's BR.
+///   `-(1.0 - CIRCLE_RATIO)` places it exactly on the box's BR corner, which is the
+///   Figma-natural position where the badge appears to hang off the circle's BR.
+fn corner_overlay_offset(total: f32, overlay_offset_from_circle_edge_ratio: f32) -> f32 {
+    -(1.0 - CIRCLE_RATIO) * total - overlay_offset_from_circle_edge_ratio * total
 }
 
 /// What to render inside the circle.
@@ -100,16 +109,18 @@ pub(crate) enum IconWithStatusVariant {
 /// sub-components (brand circle, status badge, cloud lobe) are derived proportionally,
 /// so callers only need to pick the size they want.
 ///
-/// `overlay_inset_ratio` is a fraction of `total_size` that pulls the badge / cloud
-/// overlay's BR inside the parent BR (use `0.` to anchor the overlay flush with the
-/// parent's BR corner; larger values move it up and to the left).
+/// `overlay_offset_from_circle_edge_ratio` is a signed fraction of `total_size` that
+/// positions the badge / cloud overlay's BR relative to the **circle's** BR corner:
+/// `0.0` anchors the overlay BR right on the circle's BR edge, positive values pull it
+/// further toward the circle's center, and negative values push it past the circle's
+/// BR toward the bounding box's BR (where the Figma-natural overhang lives).
 ///
 /// When `is_ambient` is set on an agent variant, the status badge is replaced by a
 /// white cloud containing the status icon.
 pub(crate) fn render_icon_with_status(
     variant: IconWithStatusVariant,
     total_size: f32,
-    overlay_inset_ratio: f32,
+    overlay_offset_from_circle_edge_ratio: f32,
     theme: &WarpTheme,
     badge_ring_background: WarpThemeFill,
 ) -> Box<dyn Element> {
@@ -152,7 +163,7 @@ pub(crate) fn render_icon_with_status(
                 status.as_ref(),
                 is_ambient,
                 total_size,
-                overlay_inset_ratio,
+                overlay_offset_from_circle_edge_ratio,
                 theme,
                 badge_ring_background,
             )
@@ -179,7 +190,7 @@ pub(crate) fn render_icon_with_status(
                 status.as_ref(),
                 is_ambient,
                 total_size,
-                overlay_inset_ratio,
+                overlay_offset_from_circle_edge_ratio,
                 theme,
                 badge_ring_background,
             )
@@ -217,18 +228,24 @@ fn attach_status_overlay(
     status: Option<&ConversationStatus>,
     is_ambient: bool,
     total_size: f32,
-    overlay_inset_ratio: f32,
+    overlay_offset_from_circle_edge_ratio: f32,
     theme: &WarpTheme,
     badge_ring_background: WarpThemeFill,
 ) -> Box<dyn Element> {
     if is_ambient {
-        render_with_cloud_status_badge(circle, status, total_size, overlay_inset_ratio, theme)
+        render_with_cloud_status_badge(
+            circle,
+            status,
+            total_size,
+            overlay_offset_from_circle_edge_ratio,
+            theme,
+        )
     } else {
         render_with_optional_status_badge(
             circle,
             status,
             total_size,
-            overlay_inset_ratio,
+            overlay_offset_from_circle_edge_ratio,
             theme,
             badge_ring_background,
         )
@@ -241,7 +258,7 @@ fn render_with_cloud_status_badge(
     circle: Box<dyn Element>,
     status: Option<&ConversationStatus>,
     total_size: f32,
-    overlay_inset_ratio: f32,
+    overlay_offset_from_circle_edge_ratio: f32,
     theme: &WarpTheme,
 ) -> Box<dyn Element> {
     let cloud_diameter = cloud_icon_size(total_size);
@@ -282,7 +299,7 @@ fn render_with_cloud_status_badge(
         None => cloud,
     };
 
-    let cloud_offset = corner_overlay_offset(total_size, overlay_inset_ratio);
+    let cloud_offset = corner_overlay_offset(total_size, overlay_offset_from_circle_edge_ratio);
     let mut stack = Stack::new().with_child(
         ConstrainedBox::new(circle)
             .with_width(total_size)
@@ -309,7 +326,7 @@ fn render_with_optional_status_badge(
     circle: Box<dyn Element>,
     status: Option<&ConversationStatus>,
     total_size: f32,
-    overlay_inset_ratio: f32,
+    overlay_offset_from_circle_edge_ratio: f32,
     theme: &WarpTheme,
     badge_ring_background: WarpThemeFill,
 ) -> Box<dyn Element> {
@@ -334,7 +351,8 @@ fn render_with_optional_status_badge(
         .with_corner_radius(CornerRadius::with_all(Radius::Percentage(50.)))
         .finish();
 
-    let badge_corner_offset = corner_overlay_offset(total_size, overlay_inset_ratio);
+    let badge_corner_offset =
+        corner_overlay_offset(total_size, overlay_offset_from_circle_edge_ratio);
     let mut stack = Stack::new().with_child(
         ConstrainedBox::new(circle)
             .with_width(total_size)

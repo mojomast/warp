@@ -186,8 +186,11 @@ pub(crate) fn conversation_or_task_agent_icon_variant(
                 .agent_config_snapshot
                 .as_ref()
                 .and_then(|s| s.harness.as_ref())
-                .map(|h| h.harness_type.as_str());
-            Some(agent_icon_variant_for_task(harness_name, src.status(app)))
+                .map(|h| h.harness_type.to_string());
+            Some(agent_icon_variant_for_task(
+                harness_name.as_deref(),
+                src.status(app),
+            ))
         }
         ConversationOrTask::Conversation(_) => Some(IconWithStatusVariant::OzAgent {
             status: Some(src.status(app)),
