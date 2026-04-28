@@ -1,0 +1,66 @@
+name: Build Windows Test Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Release channel to build"
+        required: true
+        default: "oss"
+        type: choice
+        options:
+          - oss
+          - local
+          - dev
+      arch:
+        description: "Windows architecture"
+        required: true
+        default: "x64"
+        type: choice
+        options:
+          - x64
+          - arm64
+
+permissions:
+  contents: read
+
+jobs:
+  windows-installer:
+    name: Build unsigned Windows installer (${{ inputs.arch }})
+    runs-on: windows-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Windows build environment
+        uses: ./.github/actions/prepare_environment
+        with:
+          target_os: windows
+          cache_key: windows-${{ inputs.arch }}-test-installer
+          is_self_hosted: false
+          install_release_deps: true
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Add arm64 Rust target
+        if: ${{ inputs.arch == 'arm64' }}
+        shell: pwsh
+        run: rustup target add aarch64-pc-windows-msvc
+
+      - name: Build unsigned installer
+        id: bundle
+        shell: pwsh
+        run: |
+          $ReleaseTag = "byok-test-${{ github.run_number }}-${{ github.sha }}".Substring(0, 24)
+          ./script/windows/bundle.ps1 -Channel "${{ inputs.channel }}" -Arch "${{ inputs.arch }}" -release-tag $ReleaseTag
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: warp-byok-windows-${{ inputs.arch }}-${{ inputs.channel }}
+          path: ${{ steps.bundle.outputs.installer_path }}
+          if-no-files-found: error
