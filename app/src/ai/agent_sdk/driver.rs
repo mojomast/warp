@@ -283,6 +283,17 @@ pub struct AgentDriver {
     /// when building the runner and taken back to `None` after use so subsequent runs start
     /// fresh.
     resume_payload: Option<ResumePayload>,
+
+    /// Identifies this driver as a `ConsumerId::Driver` registered with
+    /// `OrchestrationEventStreamer` for the lifetime of the run. Created
+    /// once per driver instance and reused across register/unregister.
+    streamer_consumer_id: Uuid,
+
+    /// The conversation ID this driver has registered itself as a
+    /// consumer for, if any. Set on first observation (or at construction
+    /// for resumed conversations); used by `unregister_streamer_consumer`
+    /// at end of run.
+    streamer_registered_conversation_id: Arc<Mutex<Option<AIConversationId>>>,
 }
 
 pub(crate) enum SDKConversationOutputStatus {
@@ -616,6 +627,33 @@ impl AgentDriver {
             me.handle_terminal_driver_event(event, ctx);
         });
 
+        let streamer_consumer_id = Uuid::new_v4();
+        let streamer_registered_conversation_id: Arc<Mutex<Option<AIConversationId>>> =
+            Arc::new(Mutex::new(None));
+
+        // If we're resuming an existing conversation we already know its
+        // ID; register the driver as a consumer right away so the streamer
+        // can satisfy the parent gate as soon as a child is registered.
+        if let Some(conv_id) = restored_conversation_id {
+            if warp_core::features::FeatureFlag::OrchestrationV2.is_enabled() {
+                crate::ai::blocklist::orchestration_event_streamer::OrchestrationEventStreamer::handle(
+                    ctx,
+                )
+                .update(ctx, |streamer, ctx| {
+                    streamer.register_consumer(
+                        conv_id,
+                        crate::ai::blocklist::orchestration_event_streamer::ConsumerId::Driver(
+                            streamer_consumer_id,
+                        ),
+                        ctx,
+                    );
+                });
+            }
+            if let Ok(mut guard) = streamer_registered_conversation_id.lock() {
+                *guard = Some(conv_id);
+            }
+        }
+
         Ok(Self {
             terminal_driver,
             working_dir,
@@ -633,7 +671,33 @@ impl AgentDriver {
             snapshot_script_timeout: snapshot_script_timeout
                 .unwrap_or(snapshot::DEFAULT_DECLARATIONS_SCRIPT_TIMEOUT),
             resume_payload,
+            streamer_consumer_id,
+            streamer_registered_conversation_id,
         })
+    }
+
+    /// Unregisters this driver's `ConsumerId::Driver` registration with
+    /// `OrchestrationEventStreamer`, if one was made. Safe to call when no
+    /// registration exists or when `OrchestrationV2` is disabled.
+    fn unregister_streamer_consumer(&self, ctx: &mut ModelContext<Self>) {
+        if !warp_core::features::FeatureFlag::OrchestrationV2.is_enabled() {
+            return;
+        }
+        let conversation_id = self
+            .streamer_registered_conversation_id
+            .lock()
+            .ok()
+            .and_then(|guard| *guard);
+        let Some(conversation_id) = conversation_id else {
+            return;
+        };
+        let consumer_id = crate::ai::blocklist::orchestration_event_streamer::ConsumerId::Driver(
+            self.streamer_consumer_id,
+        );
+        crate::ai::blocklist::orchestration_event_streamer::OrchestrationEventStreamer::handle(ctx)
+            .update(ctx, |streamer, ctx| {
+                streamer.unregister_consumer(conversation_id, consumer_id, ctx);
+            });
     }
 
     pub fn set_output_format(&mut self, output_format: OutputFormat) {
@@ -681,6 +745,13 @@ impl AgentDriver {
                     }
                 }
                 let result = Self::run_internal(task, foreground.clone()).await;
+
+                // Unregister the driver consumer now that the run is done.
+                // The streamer will tear down the SSE if no other consumer
+                // remains and the conversation isn't a child.
+                let _ = foreground
+                    .spawn(|me, ctx| me.unregister_streamer_consumer(ctx))
+                    .await;
 
                 // Run the snapshot upload before signaling the caller. The caller resumes and
                 // triggers process termination as soon as it receives `result`; the snapshot
@@ -1674,9 +1745,47 @@ impl AgentDriver {
         let server_api_for_conversation_update = server_api.clone();
         let task_id_for_conversation_update = self.task_id;
 
+        // Capture the streamer consumer state so the event closure can
+        // register the driver as a consumer on first observation of a
+        // conversation_id for our terminal.
+        let streamer_consumer_id = self.streamer_consumer_id;
+        let streamer_registered_conversation_id =
+            Arc::clone(&self.streamer_registered_conversation_id);
+
         ctx.subscribe_to_model(&history_model_handle, move |me, event, ctx| {
             if event.terminal_view_id().is_some_and(|id| id != terminal_id) {
                 return;
+            }
+
+            // On the first observation of a conversation_id for our
+            // terminal, register the driver as a consumer of orchestration
+            // events for that conversation. Idempotent for resumed
+            // conversations (already registered in `new`).
+            if warp_core::features::FeatureFlag::OrchestrationV2.is_enabled() {
+                if let Some(conv_id) = event_conversation_id(event) {
+                    let already_registered = streamer_registered_conversation_id
+                        .lock()
+                        .ok()
+                        .map(|guard| guard.is_some())
+                        .unwrap_or(true);
+                    if !already_registered {
+                        if let Ok(mut guard) = streamer_registered_conversation_id.lock() {
+                            *guard = Some(conv_id);
+                        }
+                        crate::ai::blocklist::orchestration_event_streamer::OrchestrationEventStreamer::handle(
+                            ctx,
+                        )
+                        .update(ctx, |streamer, ctx| {
+                            streamer.register_consumer(
+                                conv_id,
+                                crate::ai::blocklist::orchestration_event_streamer::ConsumerId::Driver(
+                                    streamer_consumer_id,
+                                ),
+                                ctx,
+                            );
+                        });
+                    }
+                }
             }
 
             match event {
@@ -2282,6 +2391,32 @@ pub(super) async fn report_driver_error(
         report_error!(
             anyhow!(e).context(format!("Failed to report driver error for task {task_id}"))
         );
+    }
+}
+
+/// Extracts the `AIConversationId` from a `BlocklistAIHistoryEvent` if the
+/// variant carries one. Used by the agent_sdk driver to discover its own
+/// conversation_id from event traffic so it can register itself as a
+/// consumer with `OrchestrationEventStreamer`.
+fn event_conversation_id(event: &BlocklistAIHistoryEvent) -> Option<AIConversationId> {
+    match event {
+        BlocklistAIHistoryEvent::AppendedExchange {
+            conversation_id, ..
+        }
+        | BlocklistAIHistoryEvent::UpdatedStreamingExchange {
+            conversation_id, ..
+        }
+        | BlocklistAIHistoryEvent::UpdatedConversationStatus {
+            conversation_id, ..
+        }
+        | BlocklistAIHistoryEvent::ReassignedExchange {
+            new_conversation_id: conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::ConversationServerTokenAssigned {
+            conversation_id, ..
+        } => Some(*conversation_id),
+        _ => None,
     }
 }
 
