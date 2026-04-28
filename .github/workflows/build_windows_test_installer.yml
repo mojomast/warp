@@ -61,13 +61,13 @@ jobs:
         shell: pwsh
         run: |
           $ReleaseTag = "byok-test-${{ github.run_number }}-${{ github.sha }}".Substring(0, 24)
-          $BundleArgs = @(
-            "-Channel", "${{ inputs.channel }}",
-            "-Arch", "${{ inputs.arch }}",
-            "-release-tag", $ReleaseTag
-          )
+          $BundleArgs = @{
+            CHANNEL = "${{ inputs.channel }}"
+            ARCH = "${{ inputs.arch }}"
+            RELEASE_TAG = $ReleaseTag
+          }
           if ("${{ inputs.debug_build }}" -eq "true") {
-            $BundleArgs += "-DEBUG_BUILD"
+            $BundleArgs.DEBUG_BUILD = $true
           }
           ./script/windows/bundle.ps1 @BundleArgs
 
