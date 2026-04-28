@@ -28,14 +28,17 @@ pub use ai::LLMId;
 pub fn is_using_api_key_for_provider(provider: &LLMProvider, app: &AppContext) -> bool {
     use ai::api_keys::ApiKeyManager;
 
-    let api_keys = UserWorkspaces::as_ref(app)
-        .is_byo_api_key_enabled()
-        .then(|| ApiKeyManager::as_ref(app).keys().clone());
+    let api_keys = ApiKeyManager::as_ref(app).keys().clone();
 
     match provider {
-        LLMProvider::OpenAI => api_keys.is_some_and(|keys| keys.openai.is_some()),
-        LLMProvider::Anthropic => api_keys.is_some_and(|keys| keys.anthropic.is_some()),
-        LLMProvider::Google => api_keys.is_some_and(|keys| keys.google.is_some()),
+        LLMProvider::OpenAI => api_keys.openai.is_some(),
+        LLMProvider::Anthropic => api_keys.anthropic.is_some(),
+        LLMProvider::Google => api_keys.google.is_some(),
+        LLMProvider::OpenRouter => api_keys.open_router.is_some(),
+        LLMProvider::Custom => api_keys.custom_endpoint.is_some(),
+        LLMProvider::AwsBedrock => {
+            UserWorkspaces::as_ref(app).is_aws_bedrock_credentials_enabled(app)
+        }
         _ => false,
     }
 }
@@ -88,6 +91,9 @@ pub enum LLMProvider {
     OpenAI,
     Anthropic,
     Google,
+    OpenRouter,
+    AwsBedrock,
+    Custom,
     Xai,
     Unknown,
 }
@@ -99,6 +105,9 @@ impl LLMProvider {
             LLMProvider::OpenAI => Some(Icon::OpenAILogo),
             LLMProvider::Anthropic => Some(Icon::ClaudeLogo),
             LLMProvider::Google => Some(Icon::GeminiLogo),
+            LLMProvider::OpenRouter => None,
+            LLMProvider::AwsBedrock => None,
+            LLMProvider::Custom => None,
             LLMProvider::Xai => None,
             LLMProvider::Unknown => None,
         }

@@ -2110,6 +2110,7 @@ pub enum AISettingsPageAction {
     ToggleAwsBedrockCredentialsEnabled,
     RefreshAwsBedrockCredentials,
     SetDefaultByokModel(LLMId),
+    ToggleByokModel(LLMId),
     ToggleCloudAgentComputerUse,
     ToggleFileBasedMcp,
     ToggleIncludeAgentCommandsInHistory,
@@ -2464,6 +2465,18 @@ impl TypedActionView for AISettingsPageView {
                     report_if_error!(settings
                         .default_model
                         .set_value(Some(model_id.clone()), ctx));
+                });
+                ctx.notify();
+            }
+            AISettingsPageAction::ToggleByokModel(model_id) => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let mut disabled = settings.disabled_byok_models.value().clone();
+                    if disabled.iter().any(|id| id == model_id) {
+                        disabled.retain(|id| id != model_id);
+                    } else {
+                        disabled.push(model_id.clone());
+                    }
+                    report_if_error!(settings.disabled_byok_models.set_value(disabled, ctx));
                 });
                 ctx.notify();
             }
@@ -5758,7 +5771,6 @@ struct ApiKeysWidget {
     default_model_dropdown: ViewHandle<Dropdown<AISettingsPageAction>>,
 
     can_use_warp_credits_with_byok: SwitchStateHandle,
-    upgrade_highlight_index: HighlightedHyperlink,
 }
 
 impl ApiKeysWidget {
@@ -5766,7 +5778,6 @@ impl ApiKeysWidget {
         let ai_settings = AISettings::as_ref(ctx);
         let workspace_handle = UserWorkspaces::handle(ctx);
         let is_any_ai_enabled = ai_settings.is_any_ai_enabled(ctx);
-        let is_byo_enabled = workspace_handle.as_ref(ctx).is_byo_api_key_enabled();
 
         let ApiKeys {
             openai: openai_key,
@@ -5807,7 +5818,7 @@ impl ApiKeysWidget {
                 });
                 AISettingsPageView::update_editor_interaction_state(
                     $editor.clone(),
-                    is_any_ai_enabled && is_byo_enabled && !$is_env_sourced,
+                    is_any_ai_enabled && !$is_env_sourced,
                     ctx,
                 );
                 ctx.subscribe_to_view(&$editor, |_, $editor, event, ctx| {
@@ -5820,27 +5831,13 @@ impl ApiKeysWidget {
                     }
                 });
                 let editor_clone = $editor.clone();
-                ctx.subscribe_to_model(&workspace_handle, move |_, workspace, event, ctx| {
+                ctx.subscribe_to_model(&workspace_handle, move |_, _workspace, event, ctx| {
                     if let UserWorkspacesEvent::TeamsChanged = event {
                         let is_any_ai_enabled =
                             AISettings::handle(ctx).as_ref(ctx).is_any_ai_enabled(ctx);
-                        let is_byo_enabled = workspace.as_ref(ctx).is_byo_api_key_enabled();
-                        let is_enabled = is_any_ai_enabled && is_byo_enabled;
-                        let has_key = !editor_clone.as_ref(ctx).is_empty(ctx);
-
-                        // If BYO is disabled, clear the API key from the editor and storage
-                        if !is_byo_enabled && has_key {
-                            editor_clone.update(ctx, |editor, ctx| {
-                                editor.set_buffer_text("", ctx);
-                            });
-                            ApiKeyManager::handle(ctx).update(ctx, |model, ctx| {
-                                model.$set_func(None, ctx);
-                            });
-                        }
-
                         AISettingsPageView::update_editor_interaction_state(
                             editor_clone.clone(),
-                            is_enabled,
+                            is_any_ai_enabled,
                             ctx,
                         );
                         ctx.notify();
@@ -5915,7 +5912,7 @@ impl ApiKeysWidget {
                 });
                 AISettingsPageView::update_editor_interaction_state(
                     $editor.clone(),
-                    is_any_ai_enabled && is_byo_enabled && !env_sourced.custom_endpoint_api_key,
+                    is_any_ai_enabled && !env_sourced.custom_endpoint_api_key,
                     ctx,
                 );
             };
@@ -5992,7 +5989,6 @@ impl ApiKeysWidget {
             default_model_dropdown,
 
             can_use_warp_credits_with_byok: Default::default(),
-            upgrade_highlight_index: Default::default(),
         }
     }
 
@@ -6003,6 +5999,7 @@ impl ApiKeysWidget {
         dropdown.update(ctx, |dropdown, ctx| {
             let keys = ApiKeyManager::as_ref(ctx).keys();
             let aws_enabled = UserWorkspaces::as_ref(ctx).is_aws_bedrock_credentials_enabled(ctx);
+            let disabled_models = AISettings::as_ref(ctx).disabled_byok_models.value();
             let mut items = vec![];
 
             for provider in providers() {
@@ -6020,6 +6017,9 @@ impl ApiKeysWidget {
                 }
 
                 for model in provider.models {
+                    if disabled_models.iter().any(|id| id == &model.llm_id()) {
+                        continue;
+                    }
                     let label = if matches!(provider.auth_type, AuthType::AwsBedrock) {
                         Cow::Owned(format!("{} ({})", model.label, provider.label))
                     } else {
@@ -6063,11 +6063,10 @@ impl ApiKeysWidget {
         &self,
         appearance: &Appearance,
         app: &AppContext,
-        is_byo_enabled: bool,
     ) -> Box<dyn Element> {
         let ai_settings = AISettings::as_ref(app);
         let is_any_ai_enabled = ai_settings.is_any_ai_enabled(app);
-        let is_enabled = is_any_ai_enabled && is_byo_enabled;
+        let is_enabled = is_any_ai_enabled;
 
         let mut column = Flex::column()
             .with_spacing(16.)
@@ -6186,65 +6185,55 @@ impl ApiKeysWidget {
                 .finish(),
         );
 
-        // Show upgrade CTA if BYOK is not enabled
-        if !is_byo_enabled {
-            let auth_state = AuthStateProvider::as_ref(app).get();
-            let upgrade_text_fragments = if let Some(team) =
-                UserWorkspaces::as_ref(app).current_team()
-            {
-                // Enterprise teams don't have a self-serve upgrade path; route them
-                // to sales to enable BYOK on their existing plan.
-                if team.billing_metadata.customer_type == CustomerType::Enterprise {
-                    vec![
-                        FormattedTextFragment::hyperlink("Contact sales", "mailto:sales@warp.dev"),
-                        FormattedTextFragment::plain_text(
-                            " to enable bringing your own API keys on your Enterprise plan.",
-                        ),
-                    ]
-                } else {
-                    let current_user_email = auth_state.user_email().unwrap_or_default();
-                    let has_admin_permissions = team.has_admin_permissions(&current_user_email);
-                    let upgrade_url = UserWorkspaces::upgrade_link_for_team(team.uid);
-                    if has_admin_permissions {
-                        vec![
-                            FormattedTextFragment::hyperlink(
-                                "Upgrade to the Build plan",
-                                upgrade_url,
-                            ),
-                            FormattedTextFragment::plain_text(" to use your own API keys."),
-                        ]
-                    } else {
-                        vec![
-                            FormattedTextFragment::plain_text(
-                                "Ask your team's admin to upgrade to the Build plan to use your own API keys.",
-                            ),
-                        ]
-                    }
-                }
-            } else {
-                let user_id = auth_state.user_id().unwrap_or_default();
-                let upgrade_url = UserWorkspaces::upgrade_link(user_id);
-                vec![
-                    FormattedTextFragment::hyperlink("Upgrade to the Build plan", upgrade_url),
-                    FormattedTextFragment::plain_text(" to use your own API keys."),
-                ]
-            };
-
-            let upgrade_text_element = FormattedTextElement::new(
-                FormattedText::new([FormattedTextLine::Line(upgrade_text_fragments)]),
-                appearance.ui_font_size(),
-                appearance.ui_font_family(),
-                appearance.ui_font_family(),
-                blended_colors::text_sub(appearance.theme(), appearance.theme().surface_1()),
-                self.upgrade_highlight_index.clone(),
-            )
-            .with_hyperlink_font_color(appearance.theme().accent().into_solid())
-            .register_default_click_handlers(|url, ctx, _| {
-                ctx.dispatch_typed_action(AISettingsPageAction::HyperlinkClick(url));
-            });
-
-            column.add_child(Container::new(upgrade_text_element.finish()).finish());
-        }
+        let disabled_models = AISettings::as_ref(app).disabled_byok_models.value();
+        column.add_child(
+            Flex::column()
+                .with_spacing(8.)
+                .with_child(
+                    Text::new_inline(
+                        "Available BYOK Models",
+                        appearance.ui_font_family(),
+                        CONTENT_FONT_SIZE,
+                    )
+                    .with_color(styles::header_font_color(is_enabled, app).into())
+                    .finish(),
+                )
+                .with_children(providers().iter().flat_map(|provider| {
+                    provider.models.iter().map(move |model| {
+                        let model_id = model.llm_id();
+                        let enabled = !disabled_models.iter().any(|id| id == &model_id);
+                        let label = format!("{} - {}", model.label, provider.label);
+                        Flex::row()
+                            .with_main_axis_size(MainAxisSize::Max)
+                            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+                            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                            .with_child(
+                                Text::new_inline(
+                                    label,
+                                    appearance.ui_font_family(),
+                                    CONTENT_FONT_SIZE,
+                                )
+                                .with_color(styles::description_font_color(is_enabled, app).into())
+                                .finish(),
+                            )
+                            .with_child(
+                                appearance
+                                    .ui_builder()
+                                    .switch(Default::default())
+                                    .check(enabled)
+                                    .build()
+                                    .on_click(move |ctx, _, _| {
+                                        ctx.dispatch_typed_action(
+                                            AISettingsPageAction::ToggleByokModel(model_id.clone()),
+                                        );
+                                    })
+                                    .finish(),
+                            )
+                            .finish()
+                    })
+                }))
+                .finish(),
+        );
 
         column.finish()
     }
@@ -6294,8 +6283,6 @@ impl SettingsWidget for ApiKeysWidget {
     ) -> Box<dyn Element> {
         let ai_settings = AISettings::as_ref(app);
         let is_any_ai_enabled = ai_settings.is_any_ai_enabled(app);
-        let is_byo_enabled = UserWorkspaces::as_ref(app).is_byo_api_key_enabled();
-
         let mut column = Flex::column()
             .with_child(render_separator(appearance))
             .with_child(
@@ -6307,15 +6294,13 @@ impl SettingsWidget for ApiKeysWidget {
                 .with_padding_bottom(HEADER_PADDING)
                 .finish(),
             )
-            .with_child(self.render_api_keys_section(appearance, app, is_byo_enabled));
+            .with_child(self.render_api_keys_section(appearance, app));
 
-        if is_byo_enabled {
-            column.add_child(
-                Container::new(self.render_can_use_warp_credits_with_byok_toggle(view, app))
-                    .with_margin_top(16.)
-                    .finish(),
-            );
-        }
+        column.add_child(
+            Container::new(self.render_can_use_warp_credits_with_byok_toggle(view, app))
+                .with_margin_top(16.)
+                .finish(),
+        );
 
         Container::new(column.finish())
             .with_margin_bottom(HEADER_PADDING)

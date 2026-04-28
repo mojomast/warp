@@ -2,6 +2,7 @@ use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
 use itertools::Itertools;
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use ordered_float::OrderedFloat;
+use settings::Setting;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::icons::Icon;
 use warp_core::ui::theme::color::internal_colors;
@@ -27,6 +28,7 @@ use crate::search::data_source::{Query, QueryFilter, QueryResult};
 use crate::search::mixer::DataSourceRunErrorWrapper;
 use crate::search::result_renderer::ItemHighlightState;
 use crate::search::{SearchItem, SyncDataSource};
+use crate::settings::AISettings;
 use crate::settings_view::SettingsSection;
 use crate::terminal::input::inline_menu::{
     default_navigation_message_items, InlineMenuAction, InlineMenuMessageArgs, InlineMenuType,
@@ -35,6 +37,8 @@ use crate::terminal::input::inline_menu::{styles as inline_styles, DetailsRender
 use crate::terminal::input::message_bar::{Message, MessageItem};
 use crate::workspace::WorkspaceAction;
 use crate::workspaces::user_workspaces::UserWorkspaces;
+use ai::api_keys::ApiKeyManager;
+use ai::provider_registry::{providers, AuthType, ProviderDef};
 use warpui::keymap::Keystroke;
 use warpui::platform::OperatingSystem;
 
@@ -161,25 +165,34 @@ impl SyncDataSource for ModelSelectorDataSource {
                 .clone()
         };
 
-        let choices: Vec<&LLMInfo> = if is_full_terminal {
-            llm_preferences.get_cli_agent_llm_choices().collect_vec()
+        let mut choices: Vec<LLMInfo> = if is_full_terminal {
+            llm_preferences
+                .get_cli_agent_llm_choices()
+                .cloned()
+                .collect_vec()
         } else {
             llm_preferences
                 .get_base_llm_choices_for_agent_mode()
+                .cloned()
                 .collect_vec()
         };
+        let byok_choices = byok_llm_choices(app)
+            .into_iter()
+            .filter(|byok_choice| choices.iter().all(|choice| choice.id != byok_choice.id))
+            .collect_vec();
+        choices.extend(byok_choices);
 
         let query_text = query.text.trim().to_lowercase();
 
         if query_text.is_empty() {
             return Ok(choices
                 .into_iter()
-                .map(|llm| QueryResult::from(ModelSearchItem::new(llm, &active_llm_id, app)))
+                .map(|llm| QueryResult::from(ModelSearchItem::new(&llm, &active_llm_id, app)))
                 .collect());
         }
 
         Ok(choices
-            .into_iter()
+            .iter()
             .filter_map(|llm| {
                 let match_result = match_indices_case_insensitive(
                     llm.display_name.to_lowercase().as_str(),
@@ -198,6 +211,71 @@ impl SyncDataSource for ModelSelectorDataSource {
                 ))
             })
             .collect())
+    }
+}
+
+fn byok_llm_choices(app: &AppContext) -> Vec<LLMInfo> {
+    let keys = ApiKeyManager::as_ref(app).keys();
+    let disabled_models = AISettings::as_ref(app).disabled_byok_models.value();
+    let aws_enabled = UserWorkspaces::as_ref(app).is_aws_bedrock_credentials_enabled(app);
+
+    providers()
+        .iter()
+        .filter(|provider| byok_provider_is_configured(provider, keys, aws_enabled))
+        .flat_map(|provider| {
+            provider.models.iter().filter_map(move |model| {
+                let id = model.llm_id();
+                if disabled_models.iter().any(|disabled_id| disabled_id == &id) {
+                    return None;
+                }
+
+                Some(LLMInfo {
+                    display_name: format!("{} - {}", model.label, provider.label),
+                    base_model_name: model.label.to_string(),
+                    id,
+                    reasoning_level: None,
+                    usage_metadata: crate::ai::llms::LLMUsageMetadata {
+                        request_multiplier: 1,
+                        credit_multiplier: None,
+                    },
+                    description: Some("BYOK".to_string()),
+                    disable_reason: None,
+                    vision_supported: false,
+                    spec: None,
+                    provider: byok_llm_provider(provider.id),
+                    host_configs: Default::default(),
+                    discount_percentage: None,
+                })
+            })
+        })
+        .collect()
+}
+
+fn byok_provider_is_configured(
+    provider: &ProviderDef,
+    keys: &ai::api_keys::ApiKeys,
+    aws_enabled: bool,
+) -> bool {
+    match provider.id {
+        "anthropic" => keys.anthropic.is_some(),
+        "openai" => keys.openai.is_some(),
+        "google" => keys.google.is_some(),
+        "open_router" => keys.open_router.is_some(),
+        "custom" => keys.custom_endpoint.is_some(),
+        "aws_bedrock" => matches!(provider.auth_type, AuthType::AwsBedrock) && aws_enabled,
+        _ => false,
+    }
+}
+
+fn byok_llm_provider(provider_id: &str) -> LLMProvider {
+    match provider_id {
+        "anthropic" => LLMProvider::Anthropic,
+        "openai" => LLMProvider::OpenAI,
+        "google" => LLMProvider::Google,
+        "open_router" => LLMProvider::OpenRouter,
+        "aws_bedrock" => LLMProvider::AwsBedrock,
+        "custom" => LLMProvider::Custom,
+        _ => LLMProvider::Unknown,
     }
 }
 

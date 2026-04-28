@@ -1214,6 +1214,16 @@ define_settings_group!(AISettings, settings: [
         description: "Default AI model to use for bring-your-own-key providers.",
     }
 
+    disabled_byok_models: DisabledByokModels {
+        type: Vec<LLMId>,
+        default: vec![],
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "ai.disabled_byok_models",
+        description: "BYOK provider models hidden from Warp model selectors.",
+    }
+
     should_render_use_agent_footer_for_user_commands: ShouldRenderUseAgentToolbarForUserCommands {
         type: bool,
         default: true,
