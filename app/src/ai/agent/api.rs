@@ -5,6 +5,7 @@ mod r#impl;
 
 pub use ai::agent::convert::ConvertToAPITypeError;
 use ai::api_keys::ApiKeyManager;
+use ai::provider_registry::{providers, AuthType};
 pub use convert_from::{
     user_inputs_from_messages, ConversionParams, ConvertAPIMessageToClientOutputMessage,
     MaybeAIAgentOutputMessage, MessageToAIAgentOutputMessageError,
@@ -244,9 +245,8 @@ impl RequestParams {
         let allow_use_of_warp_credits_with_byok =
             *AISettings::as_ref(app).can_use_warp_credits_with_byok;
         let byok_default_model = include_byo_keys
-            .then(|| AISettings::as_ref(app).default_model.value().clone())
-            .flatten()
-            .filter(|model| model.as_str() != "auto");
+            .then(|| byok_model_for_request(app))
+            .flatten();
 
         let app_execution_mode = AppExecutionMode::as_ref(app);
         let autonomy_level = if app_execution_mode.is_autonomous() {
@@ -327,4 +327,54 @@ impl RequestParams {
             agent_name: None,
         }
     }
+}
+
+fn byok_model_for_request(app: &AppContext) -> Option<LLMId> {
+    let ai_settings = AISettings::as_ref(app);
+    if let Some(model) = ai_settings
+        .default_model
+        .value()
+        .clone()
+        .filter(|model| model.as_str() != "auto")
+    {
+        return Some(model);
+    }
+
+    let keys = ApiKeyManager::as_ref(app).keys();
+    let disabled_models = ai_settings.disabled_byok_models.value();
+    let aws_enabled = UserWorkspaces::as_ref(app).is_aws_bedrock_credentials_enabled(app);
+    let provider_priority = [
+        "open_router",
+        "anthropic",
+        "openai",
+        "google",
+        "aws_bedrock",
+    ];
+
+    provider_priority.iter().find_map(|provider_id| {
+        let provider = providers()
+            .iter()
+            .find(|provider| provider.id == *provider_id)?;
+        let is_configured = match provider.id {
+            "anthropic" => keys.anthropic.is_some(),
+            "openai" => keys.openai.is_some(),
+            "google" => keys.google.is_some(),
+            "open_router" => keys.open_router.is_some(),
+            "aws_bedrock" => matches!(provider.auth_type, AuthType::AwsBedrock) && aws_enabled,
+            _ => false,
+        };
+        if !is_configured {
+            return None;
+        }
+
+        provider
+            .models
+            .iter()
+            .map(|model| model.llm_id())
+            .find(|model_id| {
+                !disabled_models
+                    .iter()
+                    .any(|disabled_id| disabled_id == model_id)
+            })
+    })
 }

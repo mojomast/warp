@@ -899,6 +899,11 @@ impl LLMPreferences {
     pub fn refresh_available_models(&self, ctx: &mut ModelContext<Self>) {
         if AuthStateProvider::as_ref(ctx).get().is_logged_in() {
             self.refresh_authed_models(ctx);
+        } else if ai::api_keys::ApiKeyManager::as_ref(ctx)
+            .keys()
+            .has_any_key()
+        {
+            log::info!("Skipping Warp model-choice fetch while logged out with local BYOK keys");
         } else {
             self.refresh_public_models(ctx);
         }

@@ -89,12 +89,26 @@ pub const GOOGLE_MODELS: &[ModelDef] = &[
     },
 ];
 
-pub const OPEN_ROUTER_MODELS: &[ModelDef] = &[ModelDef {
-    id: "openrouter/custom",
-    label: "OpenRouter custom model",
-    context_window: 0,
-    supports_tools: true,
-}];
+pub const OPEN_ROUTER_MODELS: &[ModelDef] = &[
+    ModelDef {
+        id: "openrouter/anthropic/claude-sonnet-4",
+        label: "Claude Sonnet 4",
+        context_window: 200_000,
+        supports_tools: true,
+    },
+    ModelDef {
+        id: "openrouter/openai/gpt-4o",
+        label: "GPT-4o",
+        context_window: 128_000,
+        supports_tools: true,
+    },
+    ModelDef {
+        id: "openrouter/google/gemini-2.5-pro",
+        label: "Gemini 2.5 Pro",
+        context_window: 1_000_000,
+        supports_tools: true,
+    },
+];
 
 pub const AWS_BEDROCK_MODELS: &[ModelDef] = &[
     ModelDef {

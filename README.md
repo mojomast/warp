@@ -1,92 +1,41 @@
-<a href="https://www.warp.dev">
-    <img width="1024" alt="Warp Agentic Development Environment product preview" src="https://github.com/user-attachments/assets/9976b2da-2edd-4604-a36c-8fd53719c6d4" />
-</a>
+# warpussy
 
-<p align="center">
-  <a href="https://www.warp.dev">Website</a>
-  ·
-  <a href="https://www.warp.dev/code">Code</a>
-  ·
-  <a href="https://www.warp.dev/agents">Agents</a>
-  ·
-  <a href="https://www.warp.dev/terminal">Terminal</a>
-  ·
-  <a href="https://www.warp.dev/drive">Drive</a>
-  ·
-  <a href="https://docs.warp.dev">Docs</a>
-  ·
-  <a href="https://www.warp.dev/blog/how-warp-works">How Warp Works</a>
-</p>
+warpussy is an experimental fork of Warp focused on local bring-your-own-key AI provider setup.
 
-> [!NOTE]
-> OpenAI is the founding sponsor of the new, open-source Warp repository, and the new agentic management workflows are powered by GPT models.
+The app is intentionally branded as **warpussy** in OSS builds. It is not an official Warp release.
 
-> [!IMPORTANT]
-> This fork experiments with bringing OpenCode-style BYOK provider collection to Warp. It adds a provider registry, secure credential storage extensions, provider setup state, and AI settings controls for Anthropic, OpenAI, Google, OpenRouter, AWS Bedrock, and custom OpenAI-compatible endpoints.
+## What Changed
 
-<h1></h1>
+- The OSS app name, installer name, URL scheme, log name, and config directory are branded as `warpussy`.
+- Provider Setup stores API keys locally through secure storage.
+- Signed-out users can configure and use local BYOK providers.
+- OpenRouter is prioritized for signed-out BYOK agent requests when an OpenRouter key is configured.
+- Warp-hosted model defaults are avoided when local BYOK keys are available.
+- The model picker shows configured BYOK provider models and lets users hide models from the selector.
 
-## About
+## OpenRouter Testing
 
-[Warp](https://www.warp.dev) is an agentic development environment, born out of the terminal. Use Warp's built-in coding agent, or bring your own CLI agent (Claude Code, Codex, Gemini CLI, and others).
+1. Open `Settings > AI > Provider Setup`.
+2. Enable Warp Agent if needed.
+3. Add an OpenRouter API key.
+4. Choose an OpenRouter model from `Default BYOK Model`, or leave it unset to use the first enabled OpenRouter model.
+5. Use `/model` to verify only enabled BYOK models appear alongside any locally available choices.
 
-## Installation
+## Current Limitations
 
-You can [download Warp](https://www.warp.dev/download) and [read our docs](https://docs.warp.dev/) for platform-specific instructions.
+- Requesty and arbitrary custom OpenAI-compatible endpoints are not fully routed through the current Warp multi-agent backend because the request protobuf only supports specific BYOK fields.
+- Codex OAuth should be handled by the Codex CLI itself with `codex login`; warpussy can detect and support `codex` as a third-party CLI agent.
+- Some upstream source comments and internal identifiers still use `warp` because they refer to crate names, protocols, or inherited implementation details.
 
-## Licensing
-
-Warp's UI framework (the `warpui_core` and `warpui` crates) are licensed under the [MIT license](LICENSE-MIT).
-
-The rest of the code in this repository is licensed under the [AGPL v3](LICENSE-AGPL).
-
-## Open Source & Contributing
-
-Warp's client codebase is open source and lives in this repository. We welcome community contributions and have designed a lightweight workflow to help new contributors get started. For the full contribution flow, read our [CONTRIBUTING.md](CONTRIBUTING.md) guide.
-
-### Issue to PR
-
-Before filing, [search existing issues](https://github.com/warpdotdev/warp/issues?q=is%3Aissue+is%3Aopen+sort%3Areactions-%2B1-desc) for your bug or feature request. If nothing exists, [file an issue](https://github.com/warpdotdev/warp/issues/new/choose) using our templates. Security vulnerabilities should be reported privately as described in [CONTRIBUTING.md](CONTRIBUTING.md#reporting-security-issues).
-
-Once filed, a Warp maintainer reviews the issue and may apply a readiness label: [`ready-to-spec`](https://github.com/warpdotdev/warp/issues?q=is%3Aissue+is%3Aopen+label%3Aready-to-spec) signals the design is open for contributors to spec out, and [`ready-to-implement`](https://github.com/warpdotdev/warp/issues?q=is%3Aissue+is%3Aopen+label%3Aready-to-implement) signals the design is settled and code PRs are welcome. Anyone can pick up a labeled issue — mention **@oss-maintainers** on an issue if you'd like it considered for a readiness label.
-
-### Building the Repo Locally
-
-To build and run Warp from source:
+## Building
 
 ```bash
-./script/bootstrap   # platform-specific setup
-./script/run         # build and run Warp
-./script/presubmit   # fmt, clippy, and tests
+./script/bootstrap
+./script/run
 ```
 
-See [WARP.md](WARP.md) for the full engineering guide, including coding style, testing, and platform-specific notes.
+For Windows installer testing, use the GitHub Actions workflow `Build Windows Test Installer` with `channel=oss`.
 
-## Joining the Team
+## Upstream
 
-Interested in joining the team? See our [open roles](https://www.warp.dev/careers).
-
-## Support and Questions
-
-1. See our [docs](https://docs.warp.dev/) for a comprehensive guide to Warp's features.
-2. Join our [Slack Community](https://go.warp.dev/join-preview) to connect with other users and get help from the Warp team.
-3. Try our [Preview build](https://www.warp.dev/download-preview) to test the latest experimental features.
-4. Mention **@oss-maintainers** on any issue to escalate to the team — for example, if you encounter problems with the automated agents.
-
-## Code of Conduct
-
-We ask everyone to be respectful and empathetic. Warp follows the [Code of Conduct](CODE_OF_CONDUCT.md). To report violations, email warp-coc at warp.dev.
-
-## Open Source Dependencies
-
-We'd like to call out a few of the [open source dependencies](https://docs.warp.dev/help/licenses) that have helped Warp to get off the ground:
-
-* [Tokio](https://github.com/tokio-rs/tokio)
-* [NuShell](https://github.com/nushell/nushell)
-* [Fig Completion Specs](https://github.com/withfig/autocomplete)
-* [Warp Server Framework](https://github.com/seanmonstar/warp)
-* [Alacritty](https://github.com/alacritty/alacritty)
-* [Hyper HTTP library](https://github.com/hyperium/hyper)
-* [FontKit](https://github.com/servo/font-kit)
-* [Core-foundation](https://github.com/servo/core-foundation-rs)
-* [Smol](https://github.com/smol-rs/smol)
+This fork is based on the open-source Warp repository from `warpdotdev/warp` and keeps the upstream AGPL/MIT licensing structure.

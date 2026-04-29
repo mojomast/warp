@@ -1073,11 +1073,25 @@ impl ServerApi {
         request: &warp_multi_agent_api::Request,
     ) -> std::result::Result<AIOutputStream<warp_multi_agent_api::ResponseEvent>, Arc<AIApiError>>
     {
-        let auth_token = self
-            .get_or_refresh_access_token()
-            .await
-            .map_err(Into::into)
-            .map_err(Arc::new)?;
+        let has_byok_api_keys = request
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.api_keys.as_ref())
+            .is_some_and(|keys| {
+                !keys.anthropic.is_empty()
+                    || !keys.openai.is_empty()
+                    || !keys.google.is_empty()
+                    || !keys.open_router.is_empty()
+                    || keys.aws_credentials.is_some()
+            });
+        let auth_token = match self.get_or_refresh_access_token().await {
+            Ok(token) => Some(token),
+            Err(err) if has_byok_api_keys => {
+                log::info!("Sending BYOK multi-agent request without a Warp auth token: {err:?}");
+                None
+            }
+            Err(err) => return Err(Arc::new(err.into())),
+        };
 
         let is_passive = request.input.as_ref().is_some_and(|input| {
             matches!(
@@ -1108,7 +1122,10 @@ impl ServerApi {
             .post(url)
             .proto(request)
             .prevent_sleep("Agent Mode request in-progress");
-        if let Some(token) = auth_token.as_bearer_token() {
+        if let Some(token) = auth_token
+            .as_ref()
+            .and_then(|token| token.as_bearer_token())
+        {
             request_builder = request_builder.bearer_auth(token);
         }
 

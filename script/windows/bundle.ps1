@@ -16,9 +16,9 @@ Param (
     [String]$RELEASE_TAG = '',
     [String]$FEATURES = 'release_bundle,crash_reporting,gui',
 
-    # Builds only the Warp binary, skips the installer.
+    # Builds only the app binary, skips the installer.
     [Switch]$SKIP_BUILD_INSTALLER = $False,
-    # Builds only the installer, skips the Warp binary. Use this if the Warp
+    # Builds only the installer, skips the app binary. Use this if the app
     # binary has already been built.
     [Switch]$SKIP_BUILD_BINARY = $False,
 
@@ -111,7 +111,7 @@ if ("$CHANNEL" -eq 'local') {
     $FEATURES = "$FEATURES,nld_improvements"
 } elseif ("$CHANNEL" -eq 'oss') {
     $WARP_BIN = 'warp-oss'
-    $BINARY_NAME = 'warp-oss.exe'
+    $BINARY_NAME = 'warpussy.exe'
     $APP_NAME = 'warpussy'
     # The OSS channel does not ship Sentry, so drop the crash_reporting feature
     # (which would otherwise pull in the Sentry SDK as a dependency).
@@ -139,19 +139,19 @@ if ($DEBUG_BUILD) {
 if ($CHECK_ONLY) {
     cargo check -p warp --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" --target $PLATFORM_TARGET
     if (-Not $?) {
-        Write-Error "Failed to verify Warp $WARP_BIN compilation with profile $CARGO_PROFILE"
+        Write-Error "Failed to verify $APP_NAME $WARP_BIN compilation with profile $CARGO_PROFILE"
         exit 1
     }
     exit 0
 }
 
 if (-Not $SKIP_BUILD_BINARY) {
-    Write-Output "Building Warp for channel $CHANNEL and bundle id $BUNDLE_ID"
+    Write-Output "Building $APP_NAME for channel $CHANNEL and bundle id $BUNDLE_ID"
     $env:CARGO_BIN_NAME = $CHANNEL
     $env:WARP_APP_NAME = $APP_NAME
     cargo build -p warp --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" --target $PLATFORM_TARGET
     if (-Not $?) {
-        Write-Error "Failed to build Warp $WARP_BIN binary with profile $CARGO_PROFILE"
+        Write-Error "Failed to build $APP_NAME $WARP_BIN binary with profile $CARGO_PROFILE"
         exit 1
     }
 
@@ -186,7 +186,7 @@ if (-Not $?) {
     exit 1
 }
 
-Write-Output 'Building Warp installer'
+Write-Output "Building $APP_NAME installer"
 $ISCC_ARGS = @(
     "$WINDOWS_INSTALLER_DIR\windows-installer.iss",
     "/DReleaseChannel=$CHANNEL",
@@ -216,6 +216,7 @@ if (-Not $?) {
 if ($env:GITHUB_ACTIONS -eq 'true') {
     Write-Output '::echo::on'
     if ($CHANNEL -eq 'oss') {
+        Copy-Item $INSTALLER_PATH "$INSTALLER_OUTPUT_DIR\warpussySetup.exe" -Force
         Copy-Item $INSTALLER_PATH "$INSTALLER_OUTPUT_DIR\warp-ossSetup.exe" -Force
         Copy-Item $INSTALLER_PATH "$INSTALLER_OUTPUT_DIR\WarpOssSetup.exe" -Force
     }
