@@ -167,6 +167,7 @@ pub struct AddWindowOptions {
     pub window_style: WindowStyle,
     pub window_bounds: WindowBounds,
     pub title: Option<String>,
+    pub use_native_title_bar: bool,
     pub fullscreen_state: FullscreenState,
 
     /// If true, new windows created immediately after this window is closed

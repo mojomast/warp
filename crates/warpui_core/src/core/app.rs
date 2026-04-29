@@ -2290,6 +2290,7 @@ impl AppContext {
             window_style,
             window_bounds,
             title,
+            use_native_title_bar,
             fullscreen_state,
             background_blur_radius_pixels,
             background_blur_texture,
@@ -2316,7 +2317,7 @@ impl AppContext {
         let window_options = WindowOptions {
             bounds: window_bounds,
             fullscreen_state,
-            hide_title_bar: true,
+            hide_title_bar: !use_native_title_bar,
             title,
             style: window_style,
             background_blur_radius_pixels,
